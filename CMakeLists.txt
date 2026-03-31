@@ -38,5 +38,5 @@ pico_sdk_init()
 
 #add_subdirectory(src)
 add_subdirectory(Segang)
-#add_subdirectory(Siyeong)
-#add_subdirectory(Jeyoon)
+add_subdirectory(Siyeong)
+add_subdirectory(Jeyoon)
