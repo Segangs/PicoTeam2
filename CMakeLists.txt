@@ -37,6 +37,6 @@ pico_sdk_init()
 # (이 기능을 통해 각 폴더 내부의 CMakeLists.txt를 읽어옵니다)
 
 #add_subdirectory(src)
-#add_subdirectory(Segang)
-add_subdirectory(Siyeong)
+add_subdirectory(Segang)
+#add_subdirectory(Siyeong)
 #add_subdirectory(Jeyoon)
