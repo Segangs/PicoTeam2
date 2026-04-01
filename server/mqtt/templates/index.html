@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>밭플릭스 텃밭 대시보드</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-100 p-6 font-sans">
+    <div class="max-w-6xl mx-auto">
+        <h1 class="text-3xl font-bold text-green-700 mb-6 text-center">🌱 밭플릭스 라이브</h1>
+        
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 text-center">
+            <div class="bg-white p-4 rounded-xl shadow border-t-4 border-red-400">
+                <p class="text-gray-500 text-sm">🌡️ 현재 온도</p>
+                <p class="text-2xl font-bold text-gray-800" id="current-temp">--°C</p>
+            </div>
+            <div class="bg-white p-4 rounded-xl shadow border-t-4 border-blue-400">
+                <p class="text-gray-500 text-sm">💧 현재 습도</p>
+                <p class="text-2xl font-bold text-gray-800" id="current-humi">--%</p>
+            </div>
+            <div class="bg-white p-4 rounded-xl shadow border-t-4 border-yellow-400">
+                <p class="text-gray-500 text-sm">☀️ 조도 (Raw)</p>
+                <p class="text-2xl font-bold text-gray-800" id="current-light">--</p>
+            </div>
+            <div class="bg-white p-4 rounded-xl shadow border-t-4 border-blue-600">
+                <p class="text-gray-500 text-sm">🌊 물탱크 잔량</p>
+                <p class="text-2xl font-bold text-gray-800" id="current-water">--%</p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            
+            <div class="bg-white p-6 rounded-xl shadow col-span-1 flex flex-col items-center">
+                <h2 class="text-lg font-bold text-gray-700 mb-4">🎮 원격 제어</h2>
+                <div class="flex flex-col gap-3 w-full">
+                    <button onclick="sendCommand('pump_on')" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg shadow transition transform hover:scale-105">
+                        💧 강제 급수 (펌프 ON)
+                    </button>
+                    <button onclick="sendCommand('shade_close')" class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3 px-4 rounded-lg shadow transition transform hover:scale-105">
+                        ☀️ 차양막 닫기
+                    </button>
+                    <button onclick="sendCommand('shade_open')" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-lg shadow transition transform hover:scale-105">
+                        🪴 차양막 열기
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-xl shadow col-span-1 md:col-span-2">
+                <h2 class="text-lg font-bold text-gray-700 mb-4">📝 기기 작동 로그</h2>
+                <div id="action-logs" class="h-40 overflow-y-auto bg-gray-50 p-4 rounded-lg border border-gray-200 text-sm text-gray-600 space-y-2">
+                    </div>
+            </div>
+        </div>
+
+<div class="bg-white p-6 rounded-lg shadow mb-8">
+            <h2 class="text-xl font-bold text-gray-700 mb-4">📈 온습도 변화 추이</h2>
+            <div class="relative h-52 md:h-72 w-full">
+                <canvas id="envChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function sendCommand(cmd) {
+            try {
+                const response = await fetch(`/api/control/${cmd}`, { method: 'POST' });
+                const result = await response.json();
+                if(result.status === 'success') {
+                    alert('명령 전송 성공!');
+                    fetchData();
+                }
+            } catch (error) {
+                alert('명령 전송에 실패했습니다.');
+            }
+        }
+
+async function fetchData() {
+            const response = await fetch('/api/data');
+            const data = await response.json();
+            
+            if(data.length === 0) return;
+
+            // 1. 로그 영역 업데이트 (정기 데이터가 아닌 이벤트만 추출)
+            const logsDiv = document.getElementById('action-logs');
+            const actionEvents = data.filter(d => d.event !== "regular").reverse(); // 최신순 정렬
+            
+            logsDiv.innerHTML = actionEvents.map(d => {
+                let msg = "";
+                let color = "text-gray-600";
+                
+                if(d.event === "pump_on") { msg = "💧 토양 건조로 인해 물을 주었습니다."; color = "text-blue-600 font-semibold"; }
+                else if(d.event === "shade_close") { msg = "☀️ 햇빛이 강해 차양막을 닫았습니다."; color = "text-yellow-600 font-semibold"; }
+                else if(d.event === "shade_open") { msg = "🪴 조도가 낮아져 차양막을 열었습니다."; color = "text-green-600 font-semibold"; }
+                else if(d.event === "water_low") { msg = "⚠️ 경고: 물탱크 잔량이 부족합니다!"; color = "text-red-600 font-bold"; }
+                
+                return `<p class="${color}">[${d.time_short}] ${msg}</p>`;
+            }).join('');
+
+            // 2. 그래프용 정기 데이터 필터링
+            const regularData = data.filter(d => d.event === "regular");
+            if(regularData.length === 0) return;
+
+            const displayData = regularData.slice(-15);
+
+            // 최신 상태 카드 업데이트
+            const latest = displayData[displayData.length - 1];
+            document.getElementById('current-temp').innerText = latest.temp + "°C";
+            document.getElementById('current-humi').innerText = latest.humi + "%";
+            document.getElementById('current-light').innerText = latest.light;
+            document.getElementById('current-water').innerText = latest.water + "%";
+
+            // 차트 업데이트 로직 (기존과 동일)
+            const labels = displayData.map(d => d.time_short);
+            const temps = displayData.map(d => d.temp);
+            const humis = displayData.map(d => d.humi);
+            const ctx = document.getElementById('envChart').getContext('2d');
+            if(window.myChart) window.myChart.destroy();
+            window.myChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: '온도 (°C)', data: temps, borderColor: 'rgb(239, 68, 68)', tension: 0.3, fill: true },
+                        { label: '습도 (%)', data: humis, borderColor: 'rgb(59, 130, 246)', tension: 0.3, fill: true }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: { x: { ticks: { maxTicksLimit: 6 } } }
+                }
+            });
+        }
+        fetchData();
+        setInterval(fetchData, 10000);
+    </script>
+</body>
+</html>

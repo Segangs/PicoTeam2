@@ -39,8 +39,5 @@ project(PicoTeam2_Project C CXX ASM)
 # [4] Pico SDK 초기화
 pico_sdk_init()
 
-# [5] 팀원 폴더 추가
-#add_subdirectory(src)
-add_subdirectory(Segang)
-#add_subdirectory(Siyeong)
-#add_subdirectory(Jeyoon)
+# [5] 최종 작업 폴더 추가
+add_subdirectory(src/Segang)
