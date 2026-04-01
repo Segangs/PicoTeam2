@@ -1,12 +1,14 @@
 # 1. 실행 파일 이름 설정 (팀원들과 겹치지 않게 'segang_main'으로 지정)
 add_executable(segang_main
-    main.c
+    soilmoisture.c
     # 추가로 만든 .c 파일이 있다면 여기에 나열하세요.
 )
 
-# 2. Pico 표준 라이브러리 연결
+# 2. Pico 라이브러리 연결
 target_link_libraries(segang_main 
     pico_stdlib
+    pico_cyw43_arch_none
+    hardware_adc
 )
 
 # 3. USB 시리얼 통신 활성화 (보드에 LED가 없으므로 필수!)

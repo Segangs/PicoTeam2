@@ -1,42 +1,46 @@
+# == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
+if(WIN32)
+    set(USERHOME $ENV{USERPROFILE})
+else()
+    set(USERHOME $ENV{HOME})
+endif()
+set(sdkVersion 2.2.0)
+set(toolchainVersion 14_2_Rel1)
+set(picotoolVersion 2.2.0-a4)
+set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
+if (EXISTS ${picoVscode})
+    include(${picoVscode})
+endif()
+# ====================================================================================
 cmake_minimum_required(VERSION 3.13)
 
-# [중요] 1. 맥용 플래그가 추가되는 것을 방지 (project 명령어 전에 위치해야 함)
-set(CMAKE_SYSTEM_NAME Generic)
-set(CMAKE_SYSTEM_PROCESSOR arm)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# set(CMAKE_CXX_STANDARD 17)
-# set(CMAKE_C_STANDARD 17)
+# [중요] SDK를 불러오기 전에 보드 정보를 먼저 알려줘야 합니다.
+set(PICO_BOARD pico2_w CACHE STRING "Board type")
+# set(PICO_PLATFORM rp2350 CACHE STRING "Platform type")
 
-# [2] 컴파일러 수동 지정 (CMake가 헷갈리지 않게 확실히 못박기)
-set(CMAKE_C_COMPILER arm-none-eabi-gcc)
-set(CMAKE_CXX_COMPILER arm-none-eabi-g++)
-set(CMAKE_ASM_COMPILER arm-none-eabi-gcc) # 어셈블러도 GCC를 사용
+# [1] 맥북의 -arch arm64 오류를 방지하는 범용 설정
+# 윈도우에서는 이 명령어가 무시되므로 안전합니다.
+set(CMAKE_OSX_ARCHITECTURES "")
 
-# Pico 칩셋과 보드이름 강제 지정
-set(PICO_PLATFORM rp2350-arm-s)
-set(PICO_BOARD pico2)
+# [2] SDK 경로 설정
+# 팀원 모두가 프로젝트 루트의 deps/pico-sdk에 SDK를 뒀다고 가정합니다. (서브모듈 권장)
+if (NOT PICO_SDK_PATH)
+    set(PICO_SDK_PATH "deps/pico-sdk")
+endif()
 
+# [3] SDK 불러오기
+# 루트 폴더에 pico_sdk_import.cmake 파일을 복사해두는 것이 가장 깔끔합니다.
+include(pico_sdk_import.cmake)
 
-# 1. SDK 경로를 프로젝트 내부의 deps/pico-sdk로 강제 지정합니다.
-# 이렇게 하면 팀원들이 개별적으로 환경변수를 잡지 않아도 됩니다.
-set(PICO_SDK_PATH "${CMAKE_CURRENT_SOURCE_DIR}/deps/pico-sdk")
-
-# 2. SDK 내부의 필수 파일을 불러옵니다.
-# (pico-sdk/external/pico_sdk_import.cmake 파일을 루트로 복사해두면 더 편리합니다)
-include(deps/pico-sdk/external/pico_sdk_import.cmake)
-
-# project(SmartFarm_Project C CXX ASM)
 project(PicoTeam2_Project C CXX ASM)
 
-
-# 3. Pico SDK를 초기화합니다.
+# [4] Pico SDK 초기화
 pico_sdk_init()
 
-
-# 4. 각 팀원의 폴더나 src 폴더를 포함시킵니다.
-# (이 기능을 통해 각 폴더 내부의 CMakeLists.txt를 읽어옵니다)
-
+# [5] 팀원 폴더 추가
 #add_subdirectory(src)
 add_subdirectory(Segang)
-add_subdirectory(Siyeong)
-add_subdirectory(Jeyoon)
+#add_subdirectory(Siyeong)
+#add_subdirectory(Jeyoon)

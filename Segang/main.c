@@ -1,32 +1,24 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
+#include "pico/cyw43_arch.h" // CYW43 라이브러리 포함
 
-int main()
-{
-    // 1. 시리얼 통신 초기화
+int main() {
     stdio_init_all();
+    sleep_ms(2000); // USB 시리얼 연결이 안정화될 때까지 대기
 
-    // 2. 내장 LED 설정
-    // PICO_DEFAULT_LED_PIN은 보통 25번입니다.
-    // 기존: const uint LED_PIN = PICO_DEFAULT_LED_PIN;
-    // 변경: 숫자 25를 직접 대입
-    const uint LED_PIN = 25;
+    // CYW43 드라이버 초기화 (Wi-Fi 칩)
+    if (cyw43_arch_init()) {
+        printf("CYW43 초기화 실패\n");
+        return -1;
+    }
 
-    gpio_init(LED_PIN);
-    gpio_set_dir(LED_PIN, GPIO_OUT);
-
-    printf("Pico 2 LED & Serial Test Start!\n");
-
-    while (true)
-    {
-        // LED 켜기
-        gpio_put(LED_PIN, 1);
-        printf("[System] LED ON! Heartbeat is pulsing...\n");
+    while (true) {
+        // WL_GPIO0에 연결된 LED 켜기
+        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
         sleep_ms(500);
 
         // LED 끄기
-        gpio_put(LED_PIN, 0);
-        printf("[System] LED OFF\n");
+        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
         sleep_ms(500);
     }
 }
