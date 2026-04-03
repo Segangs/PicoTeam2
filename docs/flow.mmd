@@ -1,0 +1,47 @@
+%%{init: {'theme': 'base', 'themeVariables': {
+	'fontFamily': 'Malgun Gothic, Noto Sans KR, Apple SD Gothic Neo, Pretendard, sans-serif',
+	'fontSize': '11px',
+	'primaryColor': '#ffffff',
+	'primaryTextColor': '#0f172a',
+	'primaryBorderColor': '#94a3b8',
+	'lineColor': '#64748b',
+	'clusterBkg': '#f8fafc',
+	'clusterBorder': '#cbd5e1'
+}, 'flowchart': {'curve': 'linear', 'nodeSpacing': 12, 'rankSpacing': 18, 'htmlLabels': true},
+'themeCSS': 'svg { max-width: 800px !important; max-height: 1100px !important; } .nodeLabel { word-break: keep-all !important; line-height: 1.24 !important; }'} }%%
+flowchart TB
+	subgraph TOP[" "]
+		direction LR
+
+		subgraph DEVICE["장치(Pico 2 W) 실행 흐름"]
+			direction TB
+			Start([시작]):::core --> Init["초기화<br/>Pico 2 W / Wi-Fi / MQTT / ADC / PWM"]:::core --> Loop([주기 루프]):::core
+			Loop --> Sense["센서 읽기<br/>DHT22 / 조도 / 토양수분 / 수위"]:::io --> Net["네트워크 점검<br/>연결 확인/재연결"]:::core
+			Net --> RemoteQ{원격 명령 수신?}:::decision
+
+			RemoteQ -- 예 --> RemoteAct["수동 제어 실행<br/>워터펌프 / 차양막"]:::core --> Publish
+			RemoteQ -- 아니오 --> AutoQ{자동 제어 필요?}:::decision
+			AutoQ -- 예 --> AutoAct["자동 제어 실행<br/>저수위 경고 / 급수 / 차양막"]:::core --> Publish
+			AutoQ -- 아니오 --> Publish["상태 JSON + MQTT 발행<br/>topic: sensor/data"]:::io
+
+			Publish --> Wait["주기 대기 후 반복<br/>센서 제어 1분 기준"]:::core --> Loop
+		end
+
+		subgraph SERVICE["서버 + 사용자 흐름"]
+			direction TB
+			DataIn["데이터 수신<br/>mqt_server.py"]:::io --> Save["파싱 + 저장<br/>sensor_db.json"]:::core
+			Save --> Dash["대시보드 데이터 제공<br/>GET /api/data"]:::io --> UserView["사용자 대시보드 열람<br/>index.html"]:::core
+			Save --> Tg[텔레그램 알림]:::io
+
+			UserView --> UserCmd["원격 제어 요청<br/>pump_on / shade_close / shade_open"]:::core
+			UserCmd --> CtrlApi["제어 API<br/>POST /api/control/cmd"]:::io --> CtrlPub["명령 발행<br/>topic: sensor/control"]:::io
+		end
+	end
+
+	Publish --> DataIn
+	CtrlPub --> RemoteQ
+
+	linkStyle default stroke:#64748b,stroke-width:1.0px,opacity:0.95;
+	classDef core fill:#ffffff,color:#0f172a,stroke:#94a3b8,stroke-width:0.95px,font-size:11px,padding:7px;
+	classDef decision fill:#fffbeb,color:#713f12,stroke:#f59e0b,stroke-width:0.95px,font-size:11px,padding:7px;
+	classDef io fill:#f0f9ff,color:#0c4a6e,stroke:#38bdf8,stroke-width:0.95px,font-size:11px,padding:7px;

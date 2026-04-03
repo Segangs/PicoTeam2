@@ -1,0 +1,161 @@
+%%{init: {'theme': 'base', 'themeVariables': {
+	'fontFamily': 'Malgun Gothic, Noto Sans KR, Apple SD Gothic Neo, Pretendard, sans-serif',
+	'fontSize': '11px',
+	'primaryColor': '#ffffff',
+	'primaryTextColor': '#0f172a',
+	'primaryBorderColor': '#94a3b8',
+	'lineColor': '#64748b',
+	'clusterBkg': '#f8fafc',
+	'clusterBorder': '#cbd5e1'
+}, 'flowchart': {'curve': 'linear', 'nodeSpacing': 34, 'rankSpacing': 44, 'htmlLabels': true},
+'themeCSS': '.nodeLabel { word-break: keep-all !important; line-height: 1.32 !important; }'} }%%
+flowchart TB
+	subgraph LEGACY["통합 전 개별 코드 기준(참고)"]
+		direction TB
+		LegacyDHT["dht22.c<br/>1분마다 온도/습도 알림"]:::module
+		LegacyWater["waterlevel.c<br/>수위 50% 이하 알림"]:::module
+		LegacyLight["light_servo.c<br/>광량 과다 시 차양막 동작 후 1분 뒤 재확인"]:::module
+		LegacySoil["soil_pump.c<br/>토양 건조 시 100mL 급수 후 1분 뒤 재확인"]:::module
+	end
+
+	subgraph PICO["Pico 2 W 통합 제어(main.c)"]
+		direction TB
+		PBoot["부팅: stdio_init_all + 시작 대기"]:::step --> PWifiInit["CYW43 초기화 + STA 모드"]:::step
+		PWifiInit --> PWifiOK{Wi-Fi 칩 초기화 성공?}:::decision
+		PWifiOK -- 아니오 --> PFatal["오류 출력 후 종료"]:::warn
+		PWifiOK -- 예 --> PMqttAlloc["mqtt_client_new() 1회 할당"]:::step
+		PMqttAlloc --> PHwInit["하드웨어 초기화<br/>ADC(DHT/LDR/SOIL/WATER), PWM(SERVO), L9110S(PUMP)"]:::step
+		PHwInit --> PTimerInit["타이머 초기화<br/>네트워크 10초, DHT/수위/조도/토양 1분"]:::step
+		PTimerInit --> PLoop["메인 루프 진입(100ms)"]:::terminal
+
+		PLoop --> CmdPumpQ{g_cmd_pump_on?}:::decision
+		CmdPumpQ -- 예 --> CmdPumpRun["원격 펌프 실행: water_once_ml(100mL)"]:::step --> PubPumpCmd["publish_mqtt_json('pump_on')"]:::io --> CmdCloseQ
+		CmdPumpQ -- 아니오 --> CmdCloseQ{g_cmd_shade_close?}:::decision
+		CmdCloseQ -- 예 --> CmdCloseRun["원격 차양막 닫기: SERVO_MAX_US"]:::step --> PubCloseCmd["publish_mqtt_json('shade_close')"]:::io --> CmdOpenQ
+		CmdCloseQ -- 아니오 --> CmdOpenQ{g_cmd_shade_open?}:::decision
+		CmdOpenQ -- 예 --> CmdOpenRun["원격 차양막 열기: SERVO_MIN_US"]:::step --> PubOpenCmd["publish_mqtt_json('shade_open')"]:::io --> NetDueQ
+		CmdOpenQ -- 아니오 --> NetDueQ{네트워크 점검 시각 도달?}:::decision
+
+		NetDueQ -- 예 --> LinkCheck["link_status 조회"]:::step --> LinkDownQ{status <= 0 ?}:::decision
+		LinkDownQ -- 예 --> WifiAsyncReconnect["Wi-Fi 비동기 재연결 + MQTT 흔적 정리"]:::warn --> NetTimerNext["next_network_check = now + 10초"]:::step --> DhtRead
+		LinkDownQ -- 아니오 --> LinkUpQ{status == LINK_UP ?}:::decision
+		LinkUpQ -- 예 --> MqttNeedQ{MQTT 미연결?}:::decision
+		MqttNeedQ -- 예 --> MqttConnectTry["connect_to_mqtt_broker()"]:::step --> NetTimerNext
+		MqttNeedQ -- 아니오 --> NetTimerNext
+		LinkUpQ -- 아니오 --> LinkPending["연결 진행 상태 유지"]:::step --> NetTimerNext
+		NetDueQ -- 아니오 --> DhtRead["DHT22 읽기(최신값 갱신)"]:::io
+		NetTimerNext --> DhtRead
+
+		DhtRead --> RegularDueQ{정기 알림 시각 도달?}:::decision
+		RegularDueQ -- 예 --> PubRegular["publish_mqtt_json('regular')"]:::io --> RegularNext["next_dht_publish = now + 1분"]:::step --> WaterDueQ
+		RegularDueQ -- 아니오 --> WaterDueQ{수위 점검 시각 도달?}:::decision
+
+		WaterDueQ -- 예 --> WaterRead["워터레벨 ADC 평균 + 퍼센트 계산"]:::io --> WaterLowQ{잔량 <= 50% ?}:::decision
+		WaterLowQ -- 예 --> PubWaterLow["publish_mqtt_json('water_low')"]:::io --> WaterNext["next_waterlevel = now + 1분"]:::step --> LightDueQ
+		WaterLowQ -- 아니오 --> WaterNext
+		WaterDueQ -- 아니오 --> LightDueQ{조도 점검 시각 도달?}:::decision
+
+		LightDueQ -- 예 --> LightRead["조도 ADC 평균 읽기"]:::io --> LightScale["조도 소프트웨어 증폭<br/>3500~4095 -> 0~100%"]:::step --> BrightQ{광량 >= 75% ?}:::decision
+		BrightQ -- 예 --> ShadeMovedQ{이미 닫힘 상태?}:::decision
+		ShadeMovedQ -- 아니오 --> ShadeCloseAuto["자동 닫기: SERVO_MAX_US"]:::step --> PubCloseAuto["publish_mqtt_json('shade_close')"]:::io --> LightNext["next_light = now + 1분"]:::step --> SoilDueQ
+		ShadeMovedQ -- 예 --> LightNext
+		BrightQ -- 아니오 --> ShadeIdleQ{이미 열림 상태?}:::decision
+		ShadeIdleQ -- 아니오 --> ShadeOpenAuto["자동 열기: SERVO_MIN_US"]:::step --> PubOpenAuto["publish_mqtt_json('shade_open')"]:::io --> LightNext
+		ShadeIdleQ -- 예 --> LightNext
+		LightDueQ -- 아니오 --> SoilDueQ{토양 점검 시각 도달?}:::decision
+
+		SoilDueQ -- 예 --> SoilRead["토양 ADC 평균 읽기"]:::io --> SoilCalc["soil_value = 4095 - soil_raw"]:::step --> SoilDryQ{건조 기준 이하?}:::decision
+		SoilDryQ -- 예 --> SoilPumpAuto["자동 급수: water_once_ml(100mL)"]:::step --> PubPumpAuto["publish_mqtt_json('pump_on')"]:::io --> SoilNext["next_soil = now + 1분"]:::step --> SleepLoop
+		SoilDryQ -- 아니오 --> SoilNext
+		SoilDueQ -- 아니오 --> SleepLoop["sleep_ms(100) 후 루프 반복"]:::step
+		SleepLoop --> PLoop
+
+		MqttConnCB["MQTT 연결 콜백"]:::io --> MqttSub["topic sensor/control 구독"]:::io --> CtrlIncoming["수신 payload 파싱"]:::io
+		CtrlIncoming --> CtrlTypeQ{명령 값}:::decision
+		CtrlTypeQ -- pump_on --> SetPumpFlag["g_cmd_pump_on = true"]:::step --> CmdPumpQ
+		CtrlTypeQ -- shade_close --> SetCloseFlag["g_cmd_shade_close = true"]:::step --> CmdPumpQ
+		CtrlTypeQ -- shade_open --> SetOpenFlag["g_cmd_shade_open = true"]:::step --> CmdPumpQ
+	end
+
+	subgraph BROKER["MQTT 브로커"]
+		direction TB
+		TopicData["topic: sensor/data"]:::io
+		TopicControl["topic: sensor/control"]:::io
+	end
+
+	subgraph SERVER["Ubuntu 서버(mqt_server.py + Flask)"]
+		direction TB
+		SrvStart["서버 시작"]:::terminal --> SrvMqttThread["MQTT 스레드 시작 + sensor/data 구독"]:::io
+		SrvStart --> SrvFlask["Flask 실행 (0.0.0.0:5000)"]:::step
+
+		SrvMqttThread --> OnMsg["on_message: payload 수신"]:::io --> ParseJson["UTF-8 디코드 + JSON 파싱"]:::step
+		ParseJson --> AddKst["KST 타임스탬프 추가"]:::step --> SaveDb["sensor_db.json 저장(최근 1000건)"]:::step
+		SaveDb --> EventQ{event 종류}:::decision
+		EventQ -- regular --> TgRegular["정기 상태 메시지 구성\n온도/습도/광량/수위/토양/차양막"]:::step --> TgSend["텔레그램 전송\n(대시보드 바로가기 버튼 포함)"]:::io
+		EventQ -- water_low --> TgWaterLow["저수위 경고 메시지 구성"]:::warn --> TgSend
+		EventQ -- shade_close/open --> TgShade["차양막 상태 메시지 구성"]:::step --> TgSend
+		EventQ -- pump_on --> TgPump["급수 동작 메시지 구성"]:::step --> TgSend
+
+		SrvFlask --> ApiRoot["GET / -> index.html"]:::io
+		SrvFlask --> ApiData["GET /api/data"]:::io --> ApiDataRead["DB 읽어 JSON 응답"]:::step
+		SrvFlask --> ApiCtrl["POST /api/control/{command}"]:::io --> SrvCtrlPub["sensor/control 발행"]:::io
+	end
+
+	subgraph WEB["웹 대시보드(index.html)"]
+		direction TB
+		WebLoad["페이지 로드"]:::terminal --> FetchLoop["fetchData() + 10초 주기 요청"]:::io
+		FetchLoop --> HasDataQ{데이터 존재?}:::decision
+		HasDataQ -- 아니오 --> FetchWait["다음 주기 대기"]:::step --> FetchLoop
+		HasDataQ -- 예 --> SplitData["regular / action 로그 분리"]:::step
+		SplitData --> CardUpdate["현재 카드 갱신\n온도/습도/조도/물탱크"]:::io
+		SplitData --> LogUpdate["작동 로그 갱신\npump_on, shade_close/open, water_low"]:::io
+		SplitData --> ChartUpdate["Chart.js 온습도 추이 갱신"]:::io
+
+		BtnPump["버튼: 강제 급수"]:::step --> PostPump["POST /api/control/pump_on"]:::io
+		BtnClose["버튼: 차양막 닫기"]:::step --> PostClose["POST /api/control/shade_close"]:::io
+		BtnOpen["버튼: 차양막 열기"]:::step --> PostOpen["POST /api/control/shade_open"]:::io
+	end
+
+	User["사용자"]:::actor
+
+	LegacyDHT --> RegularDueQ
+	LegacyWater --> WaterLowQ
+	LegacyLight --> BrightQ
+	LegacySoil --> SoilDryQ
+
+	PubRegular --> TopicData
+	PubWaterLow --> TopicData
+	PubCloseAuto --> TopicData
+	PubOpenAuto --> TopicData
+	PubPumpAuto --> TopicData
+	PubPumpCmd --> TopicData
+	PubCloseCmd --> TopicData
+	PubOpenCmd --> TopicData
+
+	TopicData --> OnMsg
+	SrvCtrlPub --> TopicControl
+	TopicControl --> CtrlIncoming
+	MqttConnectTry --> MqttConnCB
+
+	FetchLoop --> ApiData
+	PostPump --> ApiCtrl
+	PostClose --> ApiCtrl
+	PostOpen --> ApiCtrl
+
+	User --> WebLoad
+	User --> BtnPump
+	User --> BtnClose
+	User --> BtnOpen
+	CardUpdate --> User
+	LogUpdate --> User
+	ChartUpdate --> User
+	TgSend --> User
+
+	linkStyle default stroke:#64748b,stroke-width:1.1px,opacity:0.95;
+	classDef terminal fill:#dbeafe,color:#0f172a,stroke:#3b82f6,stroke-width:1.2px,font-size:11px,padding:10px;
+	classDef step fill:#ffffff,color:#0f172a,stroke:#94a3b8,stroke-width:1.0px,font-size:11px,padding:10px;
+	classDef decision fill:#fffbeb,color:#713f12,stroke:#f59e0b,stroke-width:1.0px,font-size:11px,padding:10px;
+	classDef io fill:#f0f9ff,color:#0c4a6e,stroke:#38bdf8,stroke-width:1.0px,font-size:11px,padding:10px;
+	classDef warn fill:#fef2f2,color:#7f1d1d,stroke:#ef4444,stroke-width:1.0px,font-size:11px,padding:10px;
+	classDef actor fill:#f8fafc,color:#111827,stroke:#64748b,stroke-width:1.0px,font-size:11px,padding:10px;
+	classDef module fill:#ede9fe,color:#312e81,stroke:#8b5cf6,stroke-width:1.0px,font-size:11px,padding:10px;
