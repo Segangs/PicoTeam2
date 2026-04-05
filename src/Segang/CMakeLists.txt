@@ -2,7 +2,6 @@
 add_executable(segang_main
     main.c
     #${PICO_SDK_PATH}/lib/lwip/src/apps/mqtt/mqtt.c
-    # 추가로 만든 .c 파일이 있다면 여기에 나열하세요.
 )
 
 # 2. Pico 라이브러리 연결

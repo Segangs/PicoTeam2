@@ -57,7 +57,7 @@
 #include "lwip/ip_addr.h"
 
 // --- MQTT 브로커 설정 ---
-#define MQTT_BROKER_IP "221.145.210.230"  // MQTT 브로커(서버)의 IP 주소
+#define MQTT_BROKER_IP "*.*.*.*"  // MQTT 브로커(서버)의 IP 주소
 #define MQTT_PORT 1883
 #define MQTT_TOPIC_PUB "sensor/data"
 #define MQTT_TOPIC_SUB "sensor/control"// 피코가 명령을 받는 토픽

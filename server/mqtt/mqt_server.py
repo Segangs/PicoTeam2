@@ -26,7 +26,7 @@ def send_telegram(message):
     # 텔레그램 메시지 하단에 달릴 버튼 생성
     keyboard = {
         "inline_keyboard": [[
-            {"text": "📊 텃밭 대시보드", "url": "http://221.145.210.230:5000"}
+            {"text": "📊 텃밭 대시보드", "url": "http://***.***.***.***:5000"}. # 비공개 처리 26.4.6.
         ]]
     }
     
